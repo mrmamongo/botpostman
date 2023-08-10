@@ -1,0 +1,61 @@
+version: "3.8"
+
+services:
+  database:
+    image: postgres:15-alpine3.18
+    env_file:
+      - ./deploy/postgres.env
+    ports:
+      - "54324:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  nats:
+    image: nats:alpine3.18
+    ports:
+      - "4222:4222"
+      - "4223:4223"
+      - "8222:8222"
+    command: "--server_name hub -js --http_port 8222"
+    healthcheck:
+      test: [ "CMD", "sh", "-c" , "wget http://localhost:8222/healthz -q -O - | xargs | grep ok || exit 1" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  app:
+    build: .
+    env_file:
+      - ./deploy/backend.env
+    ports:
+      - "8010:8000"
+    depends_on:
+      database:
+        condition: service_healthy
+
+    volumes:
+      - logs:/logs.log
+
+  alembic:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    env_file:
+      - ./deploy/backend.env
+    command: [ "alembic", "upgrade", "head" ]
+    depends_on:
+      database:
+        condition: service_healthy
+
+volumes:
+  db:
+    driver: local
+  logs:
+    driver: local
+
